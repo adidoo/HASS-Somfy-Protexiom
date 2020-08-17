@@ -27,17 +27,18 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
+    _LOGGER.info("Setup platform...")
     alarms = []
 
-    controller = hass.data[SOMFY_DOMAIN]["controller"]
+    somfy_controller = hass.data[SOMFY_DOMAIN]["controller"]
 
-    alarms.append(SomfyAlarm(hass, controller))
+    alarms.append(SomfyAlarm(hass, somfy_controller))
     add_entities(alarms)
-
+    _LOGGER.info("Fin setup platform...") 
 
 def set_arm_state(state, hass, somfy, code=None):
     """Send set arm state command."""
-    _LOGGER.debug("Somfy set arm state %s", state)
+    _LOGGER.debug("User request: Set Somfy alarm to arm state %s", state)
     ACTIVATION_ALARM_CODE = hass.data[SOMFY_DOMAIN]["activation_alarm_code"]
 
     if ACTIVATION_ALARM_CODE is not None and code != ACTIVATION_ALARM_CODE:
@@ -57,18 +58,20 @@ def set_arm_state(state, hass, somfy, code=None):
     except:
         _LOGGER.debug("Somfy could not activate alarm")
         _LOGGER.debug("Error when trying to log in")
+
     try:    
         _state_result = somfy.get_state()
-        _LOGGER.debug("state")
+        _LOGGER.debug("Somfy states updated:")
         _LOGGER.debug(_state_result)
+        hass.data[SOMFY_DOMAIN]["state"] = _state_result
     except:
         _LOGGER.debug("Error when trying to get state")    
     try:
         somfy.logout()
-        hass.data[SOMFY_DOMAIN]["state"] = _state_result
     except:
         _LOGGER.debug("Error when trying to log out !")
 
+    self.update()
 
 class SomfyAlarm(alarm.AlarmControlPanel):
 
@@ -106,9 +109,16 @@ class SomfyAlarm(alarm.AlarmControlPanel):
     def update(self):
         """Update alarm status."""
         state = self._hass.data[SOMFY_DOMAIN]["state"]
-        if state['alarm'] == "Pas d'alarme" :
+        #_LOGGER.debug(self._hass.data[SOMFY_DOMAIN])  
+        #_LOGGER.debug("Current Somfy states:")    
+        #_LOGGER.debug(state)  
+        if state == None:
+            _LOGGER.debug("Alarm states no availlable") 
+        elif state['zone_a_armed'] == False and state['zone_b_armed'] == False and state['zone_c_armed'] == False :
+            #_LOGGER.debug("Alarm off") 
             self._state = STATE_ALARM_DISARMED
         else:
+            #_LOGGER.debug("Alarm on") 
             self._state = STATE_ALARM_ARMED_AWAY
         _LOGGER.debug("State alarm %s ", self._state)
         

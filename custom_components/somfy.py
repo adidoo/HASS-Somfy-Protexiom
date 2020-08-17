@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-from bs4 import BeautifulSoup
-import mechanize
+#from bs4 import BeautifulSoup
+import mechanicalsoup
 import configparser
 import io
 import ssl
@@ -23,9 +23,7 @@ class Somfy:
         self.id = id
         self.password = password
         self.codes = codes
-        self.browser = mechanize.Browser()
-        self.browser.set_handle_robots(False)
-        self.browser.addheaders = [('User-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36')]
+        self.browser = mechanicalsoup.StatefulBrowser(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36')
 
     def __enter__(self):
         self.login()
@@ -34,148 +32,132 @@ class Somfy:
     def __exit__(self, type, value, traceback):
         self.logout()
 
-    def login(self):
-        login_response = self.browser.open(self.url + "/m_login.htm")
-        login_html = login_response.read()
-        # print(login_html)
+    def login(self, reset_cnx = False):
+        login_html = self.browser.open(self.url + "/gb/login.htm")
+        login_soup = self.browser.get_current_page()
+        self._check_error(login_soup, reset_cnx)
+        authentication_code = login_soup.find('form').find('table')
 
-        login_soup = self._beautiful_it_and_check_error(login_html)
-        authentication_code = login_soup.find('form').find('table').findAll('tr')[5].findAll('b')[0].find(text=True)
-
+        authentication_code = authentication_code.findAll('tr')[2].find('b').find(text=True)
+    
         self.browser.select_form(nr=0)
         self.browser["password"] = self.password
         key = ("key_%s" % authentication_code)
         self.browser["key"] = self.codes[key]
 
-        self.browser.submit()
+        self.browser.submit_selected()
+
 
     def logout(self):
-        self.browser.open(self.url + "/m_logout.htm")
+        self.browser.open(self.url + "/logout.htm")
+
+    def set_zone(self,zone):
+        self.browser.open(self.url + "/gb/u_pilotage.htm")
+        self._check_error(self.browser.get_current_page())
+        self.browser.select_form(nr =0)
+        self.browser["hidden"] = "hidden"
+        submit = self.browser.get_current_page().find("div", {"id": "groupdrive"}).find('input', attrs={"name": zone})
+        self.browser.select_form().choose_submit(submit)
+        self.browser.submit_selected()
 
     def set_zone_a(self):
-        self.browser.open(self.url + "/mu_pilotage.htm")
-        self.browser.select_form(nr = 0)
-        self.browser.submit()
+        self.set_zone("btn_zone_on_A")
 
     def set_zone_b(self):
-        self.browser.open(self.url + "/mu_pilotage.htm")
-        self.browser.select_form(nr = 1)
-        self.browser.submit()
+        self.set_zone("btn_zone_on_B")
 
     def set_zone_c(self):
-        self.browser.open(self.url + "/mu_pilotage.htm")
-        self.browser.select_form(nr = 2)
-        self.browser.submit()
+        self.set_zone("btn_zone_on_C")
 
     def set_all_zone(self):
-        self.browser.open(self.url + "/mu_pilotage.htm")
-        self.browser.select_form(nr =3)
-        self.browser.submit()
+        self.set_zone("btn_zone_on_ABC")
 
     def unset_all_zone(self):
-        self.browser.open(self.url + "/mu_pilotage.htm")
-        self.browser.select_form(nr =4)
-        self.browser.submit()
+        self.set_zone("btn_zone_off_ABC")
 
     def get_state(self):
-        state_response = self.browser.open(self.url + "/mu_etat.htm")
-        state_html = state_response.read()
-
-        state_soup = self._beautiful_it_and_check_error(state_html)
-        result = self.get_general_state(state_soup.findAll('table')[0])
-        result.update(self.get_zone_state(state_soup.findAll('table')[0]))
+        state_response = self.browser.open(self.url + "/gb/u_pilotage.htm")
+        page_soup = self.browser.get_current_page()
+        self._check_error(page_soup)
+        result = self.get_general_state(page_soup)
+        result.update(self.get_zone_state(page_soup))
 
         return result
 
     def get_zone_state(self, state_soup):
-        zone_state = state_soup.findAll('table')[2].findAll('tr')
+        groupstate_soup = state_soup.find("div", {"id": "groupstate"})
 
-        def get_zone_a():
-            return { "zone_a" : zone_state[0].find(text=True) }
+        # possible return for each group : alarmoff = / ???
+        # Alarm: noalarm or alarm 
+        # Armed: alarmon or alarmoff
+        def get_zone(zone):
+            zone_soup = groupstate_soup.find("div", {"id": "group"+zone}).findAll("div")
+            armed_class = zone_soup[0]['class'][0]
+            alarm_class = zone_soup[1]['class'][0]
+            return { "zone_"+zone+"_armed" : armed_class == "alarmon", "zone_"+zone+"_alarm" : alarm_class != "noalarm" } 
 
-        def get_zone_b():
-            return { "zone_b" : zone_state[1].find(text=True) }
-
-        def get_zone_c():
-            return { "zone_c" : zone_state[2].find(text=True) }
-
-        result = get_zone_a()
-        result.update(get_zone_b())
-        result.update(get_zone_c())
+        result = get_zone("a")
+        result.update(get_zone("b"))
+        result.update(get_zone("c"))
 
         return result
 
     def get_general_state(self, state_soup):
-        general_state = state_soup.findAll('table')[1].findAll('tr')
+        alarmstate_soup = state_soup.find("div", {"id": "alarmstate"}).findAll()
 
+        #print(alarmstate_soup)
+
+        # States based on Home Assistant device classes
+        # https://developers.home-assistant.io/docs/core/entity/binary-sensor/
+        
+        # possible return : pbattery_ok
+        # True if battery low
         def get_battery_state():
-            return { "battery" : general_state[0].find(text=True) }
+            return { "battery_low" : alarmstate_soup[3]['class'][0] != "pbattery_ok"}
 
+        # possible return : pcom_ok
         def get_communication_state():
-            return { "communication" : general_state[1].find(text=True) }
+            return { "communication" : alarmstate_soup[4]['class'][0] == "pcom_ok"}
 
+        # possible return : pdoor_ok = door closed, pdoor_nok = dor open
+        # True if open
         def get_door_state():
-            return { u"door" : general_state[2].find(text=True) }
+            return { "door" : alarmstate_soup[5]['class'][0] != "pdoor_ok"}
 
+        # possible return : phouse_ok = No alarm, phouse_int = Intrusion
         def get_alarm_state():
-            return { "alarm" : general_state[4].find(text=True) }
+            return { "alarm" : alarmstate_soup[6]['class'][0] != "phouse_ok"}
 
+        # possible return : pbox_ok
         def get_material_state():
-            return { "material" : general_state[6].find(text=True) }
+            return { "material" : alarmstate_soup[7]['class'][0] == "pbox_ok"}
+
+        # possible return : pgsm_5_ok
+        def get_gsm_state():
+            return { "gsm" : alarmstate_soup[8]['class'][0] == "pgsm_5_ok"}
+
+        # possible return : pcam_serv_off
+        def get_camera_state():
+            return { "camera" : alarmstate_soup[9]['class'][0] != "pcam_serv_off"}
 
         result = get_battery_state()
         result.update(get_communication_state())
         result.update(get_door_state())
         result.update(get_alarm_state())
         result.update(get_material_state())
+        result.update(get_gsm_state())
+        result.update(get_camera_state())
 
         return result
-
-    def get_elements(self):
-        state_response = self.browser.open(self.url + "/u_listelmt.htm")
-        state_html = state_response.read()
-        state_soup = self._beautiful_it_and_check_error(state_html)
-        result = state_soup.find("div", {"id": "itemlist"})
         
-        extract_elements = re.compile('var\sitem_type\s+=\s(.*);\nvar\sitem_label\s+=\s(.*);\nvar\sitem_pause\s+=\s(.*);\nvar\selt_name\s+=\s(.*);\nvar\selt_code\s+=\s(.*);\nvar\selt_pile\s+=\s(.*);\nvar\selt_as\s+=\s(.*);\nvar\selt_maison\s+=\s(.*);\nvar\selt_onde\s+=\s(.*);\nvar\selt_porte\s+=\s(.*);\nvar\selt_zone\s+=\s(.*);', re.IGNORECASE).search(str(result))
-               
-        item_type = json.loads(extract_elements.group(1))
-        item_label = json.loads(extract_elements.group(2))
-        item_pause = json.loads(extract_elements.group(3))
-        elt_name = json.loads(extract_elements.group(4))
-        elt_code = json.loads(extract_elements.group(5)) 
-        elt_pile = json.loads(extract_elements.group(6))
-        elt_as = json.loads(extract_elements.group(7))
-        elt_maison = json.loads(extract_elements.group(8))
-        elt_onde = json.loads(extract_elements.group(9))
-        elt_porte = json.loads(extract_elements.group(10))
-        elt_zone = json.loads(extract_elements.group(11))
-
-        elements = {}
-        for x in range(len(elt_code)):
-            elements[elt_code[x]]  = { 
-                "item_type" : item_type[x], 
-                "item_label" : item_label[x], 
-                "item_pause" : item_pause[x],
-                "elt_name" : elt_name[x],
-                "elt_pile" : elt_pile[x],
-                "elt_as" : elt_as[x],
-                "elt_maison" : elt_maison[x],
-                "elt_onde" : elt_onde[x],
-                "elt_porte" : elt_porte[x],
-                "elt_zone" : elt_zone[x]
-            }
-
-        return  elements
-
-    def _beautiful_it_and_check_error(self, html):
-        soup = BeautifulSoup(html, "lxml")
-        self._check_error(soup)
-        return soup
-
-    def _check_error(self, soup):
-        if soup.find("div", {"class": "error"}):
-            error_code = soup.find('div').findAll('b')[0].find(text=True)
+    def _check_error(self, soup, reset_cnx = False):
+        if soup.find("div", {"id": "titlebar"}).findAll()[0].find(text=True) == "Error":
+            error_code = soup.find('div', {"id": "infobox"}).findAll('b')[0].find(text=True)
+            
+            if reset_cnx:
+              self.browser.select_form(nr =0)
+              self.browser.submit_selected()
+            
             if '(0x0904)' == error_code:
                 raise SomfyException("Nombre d'essais maximum atteint")
             if '(0x1100)' == error_code:
@@ -186,3 +168,6 @@ class Somfy:
                 raise SomfyException("Mauvais login/password")
             if '(0x0903)' == error_code:
                 raise SomfyException("Droit d'acces insuffisant")
+            else:
+                raise SomfyException("Error "+error_code)
+

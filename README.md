@@ -2,14 +2,18 @@
   
 ## Disclaimer
 
-Ce projet a été construit et développé à partir du script python disponible ici : https://gist.github.com/stephanlascar/4634276.
+Ce composant pour home assistant permet de controler une alarme Protexiom (2017) de Somfy.
 
-La classe Somfy a été améliorée pour les besoins du projet.
+Il s'agit d'une mise à jour du projet de Pschittt initialement développé pour l'alarme Somfy Protexiom 600 version 2009 : 
+https://github.com/Pschittt/HASS-Somfy-Protexiom
 
-Ce custom component a été développé pour mes besoins personnels. En aucun cas, il n'y est lié à Somfy.
+La classe Somfy a été modifiée pour fonctionner avec la version 2017 des alarmes Somfy Protexiom 600.
+La libraire Mechanize à également été remplacé par MechanicalSoup car non disponible sur hassos.
+
+Ce "custom component" a été développé pour mes besoins personnels. En aucun cas, il n'y est lié à Somfy.
 
 ## Compatibilité
-Ce composant a été testé uniquement avec l'alarme **Somfy Protexiom 600 version 2009**
+Ce composant a été testé uniquement avec l'alarme **Somfy Protexiom 600 version 2017**
 
 ## Installation
 
@@ -71,14 +75,14 @@ protexiom:
 ## Fonctionnement du composant
 `Sensor.py` permet de récupérer via le script `Somfy.py` :
  - L'état général de l'alarme
- - L'état des différents éléments
+ - L'état des différents éléments (Pas encore mis à niveau pour fonctionner avec cette version)
 Et les stockent dans l'objet Hass.
 
 `Binary_sensor.py` permet de récupérer l'ensemble des états (ON/OFF) des éléments issus de `sensor.py`
 
 `alarm_control_panel.py` permet d'activer ou de désactiver l'alarme via Hass.
 
-> Le custom_component est configuré pour récupérer les états toutes les **2 minutes.**
+> Le custom_component est configuré pour récupérer les états toutes les **minutes.**
 
 ## Exemple automation
 Editer le fichier `config/automations.yaml`

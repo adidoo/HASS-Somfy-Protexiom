@@ -22,7 +22,8 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_URL): cv.string,
                 vol.Required(CONF_PASSWORD): cv.string,
                 vol.Required(CONF_CODES): vol.All(
-                    {'key_A1': cv.string, 'key_A2': cv.string, 'key_A3': cv.string, 'key_A4': cv.string, 'key_A5': cv.string,
+                    {
+                    'key_A1': cv.string, 'key_A2': cv.string, 'key_A3': cv.string, 'key_A4': cv.string, 'key_A5': cv.string,
                     'key_B1': cv.string, 'key_B2': cv.string, 'key_B3': cv.string, 'key_B4': cv.string, 'key_B5': cv.string,
                     'key_C1': cv.string, 'key_C2': cv.string, 'key_C3': cv.string, 'key_C4': cv.string, 'key_C5': cv.string,
                     'key_D1': cv.string, 'key_D2': cv.string, 'key_D3': cv.string, 'key_D4': cv.string, 'key_D5': cv.string,
@@ -47,31 +48,38 @@ def setup(hass, config):
     
     try: 
         somfy = Somfy(url, password, codes)
-        somfy.login()
-        elements = somfy.get_elements()
+        try:
+            somfy.login(True)
+            _LOGGER.debug("Login ok")
+        except:
+          #_LOGGER.debug(err)
+            _LOGGER.debug("Login error cleared, try new login")
+            somfy.login() # retry (Error catch submit a cnx reset on alarm)
+            _LOGGER.debug("Login ok")
+        #elements = somfy.get_elements()
         somfy.logout()
     except:
         _LOGGER.exception("Error when trying to log in")
         return False
     
-    hass.data[DOMAIN] = {"controller": somfy, "devices": {"general":[]}, "state": "", "elements": "", "activation_alarm_code": password}
+    hass.data[DOMAIN] = {"controller": somfy, "devices": {"general":[]}, "state": None, "elements": "", "activation_alarm_code": password}
     
     ## Add the general states as devices
+    _LOGGER.debug("General devices : ")
     for device in SOMFY_DEVICES_TYPE:
-        _LOGGER.debug(device)
+        _LOGGER.debug("    "+device)
         hass.data[DOMAIN]["devices"]["general"].append(device)
 
     ## Add all elements as devices
-    for deviceId, deviceTypes in elements.items():
-        hass.data[DOMAIN]["devices"].update({deviceId : []})
-        for typeId, typeValue in deviceTypes.items():
-            if (typeId in SENSOR_TYPES) and (typeValue != "itemhidden"):
-                hass.data[DOMAIN]["devices"][deviceId].append(typeId)
+    # for deviceId, deviceTypes in elements.items():
+        # hass.data[DOMAIN]["devices"].update({deviceId : []})
+        # for typeId, typeValue in deviceTypes.items():
+            # if (typeId in SENSOR_TYPES) and (typeValue != "itemhidden"):
+                # hass.data[DOMAIN]["devices"][deviceId].append(typeId)
 
     
+    _LOGGER.debug("Components : ")
     for component in SOMFY_COMPONENTS:
-        _LOGGER.debug("Components : ")
-        _LOGGER.debug(component)
+        _LOGGER.debug("    "+component)
         discovery.load_platform(hass, component, DOMAIN, {}, config)
-        
     return True

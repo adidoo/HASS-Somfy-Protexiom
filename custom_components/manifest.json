@@ -4,5 +4,5 @@
 	"documentation": "",
 	"dependencies": [],
 	"codeowners": [],
-	"requirements": ["mechanize", "configparser"]
+	"requirements": ["MechanicalSoup==0.12.0", "configparser"]
 }
